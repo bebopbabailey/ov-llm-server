@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SRC_ROOT="${OV_MODEL_SRC:-$HOME/model}"
+OG_ROOT="${OV_MODEL_OG:-$HOME/model/og_models}"
+OUT_ROOT="${OV_MODEL_OUT:-$HOME/models/converted_models}"
+CONVERT_ENV="${OV_CONVERT_ENV:-$PWD/.venv-convert}"
+OPTIMUM_CLI="${CONVERT_ENV}/bin/optimum-cli"
+TASK="${OV_TASK:-text-generation-with-past}"
+WEIGHT_FORMAT="${OV_WEIGHT_FORMAT:-fp32}"
+
+if [[ ! -x "$OPTIMUM_CLI" ]]; then
+  echo "Missing converter: $OPTIMUM_CLI" >&2
+  echo "Create it with: uv venv .venv-convert" >&2
+  echo "Then install tools: uv pip install --python .venv-convert \"optimum[openvino]\" sentencepiece tiktoken" >&2
+  exit 1
+fi
+
+mkdir -p "$OG_ROOT" "$OUT_ROOT"
+
+shopt -s nullglob
+declare -A NAME_MAP
+MODEL_DIRS=()
+for src in "$SRC_ROOT"/*; do
+  if [[ ! -d "$src" ]]; then
+    continue
+  fi
+  base="$(basename "$src")"
+  if [[ "$base" == "og_models" ]]; then
+    continue
+  fi
+  MODEL_DIRS+=("$src")
+done
+
+slugify() {
+  local input="$1"
+  local slug
+  slug="$(printf "%s" "$input" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/-+/-/g; s/^-|-$//g')"
+  printf "%s" "$slug"
+}
+
+if [[ "${#MODEL_DIRS[@]}" -eq 0 ]]; then
+  echo "No models found under $SRC_ROOT"
+  exit 0
+fi
+
+for src in "${MODEL_DIRS[@]}"; do
+  base="$(basename "$src")"
+  printf "Custom name for %s? Blank for empty: " "$base"
+  read -r custom_name
+  if [[ -z "$custom_name" ]]; then
+    custom_name="$(slugify "$base")"
+  else
+    custom_name="$(slugify "$custom_name")"
+  fi
+  if [[ -z "$custom_name" ]]; then
+    echo "Skipping unnamed model: $base"
+    continue
+  fi
+  name="$custom_name"
+  suffix=2
+  while [[ -d "${OUT_ROOT}/${name}" ]]; do
+    name="${custom_name}-${suffix}"
+    suffix=$((suffix + 1))
+  done
+  if [[ "$name" != "$custom_name" ]]; then
+    echo "Name in use; using: $name"
+  fi
+  NAME_MAP["$src"]="$name"
+done
+
+for src in "${MODEL_DIRS[@]}"; do
+  base="$(basename "$src")"
+  name="${NAME_MAP[$src]-}"
+  if [[ -z "$name" ]]; then
+    continue
+  fi
+  og_path="$OG_ROOT/$base"
+  dest_dir="${OUT_ROOT}/${name}/task-${TASK}__wf-${WEIGHT_FORMAT}"
+  if [[ -d "$dest_dir" ]]; then
+    echo "Skipping already converted: $dest_dir"
+    continue
+  fi
+
+  echo "Converting: $src -> $dest_dir"
+  "$OPTIMUM_CLI" export openvino \
+    --model "$src" \
+    --task "$TASK" \
+    --trust-remote-code \
+    "$dest_dir"
+
+  echo "Moving original to: $og_path"
+  mv "$src" "$og_path"
+
+  python3 - <<PY
+import json
+import os
+from datetime import datetime, timezone
+
+data = {
+    "name": "${name}",
+    "source_path": "${src}",
+    "original_path": "${og_path}",
+    "converted_path": "${dest_dir}",
+    "task": "${TASK}",
+    "weight_format": "${WEIGHT_FORMAT}",
+    "converted_at": datetime.now(timezone.utc).isoformat(),
+}
+
+with open(os.path.join("${dest_dir}", "conversion.json"), "w", encoding="utf-8") as handle:
+    json.dump(data, handle, indent=2)
+    handle.write("\n")
+PY
+
+  python3 - <<PY
+import json
+import os
+import tempfile
+
+registry_path = os.path.join("${OUT_ROOT}", "registry.json")
+data = {"version": 1, "models": {}}
+if os.path.exists(registry_path):
+    with open(registry_path, "r", encoding="utf-8") as handle:
+        try:
+            data = json.load(handle)
+        except json.JSONDecodeError:
+            data = {"version": 1, "models": {}}
+
+data.setdefault("version", 1)
+models = data.setdefault("models", {})
+models["${name}"] = {
+    "path": "${dest_dir}",
+    "task": "${TASK}",
+    "weight_format": "${WEIGHT_FORMAT}",
+}
+
+tmp_dir = os.path.dirname(registry_path)
+with tempfile.NamedTemporaryFile("w", delete=False, dir=tmp_dir, prefix="registry.", suffix=".tmp", encoding="utf-8") as handle:
+    json.dump(data, handle, indent=2, sort_keys=True)
+    handle.write("\n")
+    tmp_path = handle.name
+
+os.replace(tmp_path, registry_path)
+PY
+done
