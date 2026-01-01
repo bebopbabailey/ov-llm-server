@@ -7,6 +7,17 @@ Bare-metal OpenVINO GenAI server targeting an OpenAI-compatible chat API.
 - `uv` for dependency management
 - OpenVINO GenAI runtime (Python package, no system drivers to install)
 
+## Runtime Configuration
+- `OV_MODEL_PATH`: fallback OpenVINO model path used when no registry entry exists.
+- `OV_REGISTRY_PATH`: registry file location (default: `~/models/converted_models/registry.json`).
+- `OV_DEVICE`: OpenVINO device (default: `GPU`).
+- `OV_LOG_LEVEL`: logging level (default: `INFO`).
+
+## Service Ergonomics
+- Use a systemd env file to set `OV_MODEL_PATH`, `OV_REGISTRY_PATH`, and `OV_DEVICE`.
+- Run a single worker to avoid duplicate model loads.
+- Keep lazy loading (models load on first request) for lower idle memory use.
+
 ## Quick Start
 1) Install dependencies:
 ```
@@ -25,6 +36,7 @@ uv pip install --python .venv-convert "optimum[openvino]" sentencepiece tiktoken
 ```
 You will be prompted once per model for a custom name; leaving it blank uses a slugged version
 of the source folder name.
+If the name already exists in `~/models/converted_models`, a numeric suffix is appended.
 Optional: install the converter on your PATH:
 ```
 make install
@@ -37,6 +49,31 @@ If your model path differs, set it explicitly:
 ```
 OV_MODEL_PATH=~/models/converted_models/qwen2-5-3b-instruct/task-text-generation-with-past__wf-fp32 \
   uv run uvicorn main:app --host 0.0.0.0 --port 9000
+```
+
+## Systemd (User Service)
+This repo includes a user-level systemd unit and env file:
+- `ov-server.service`
+- `ov-server.env`
+
+Install and enable:
+```
+mkdir -p ~/.config/ov-llm-server ~/.config/systemd/user
+cp ./ov-server.env ~/.config/ov-llm-server/ov-server.env
+cp ./ov-server.service ~/.config/systemd/user/ov-server.service
+systemctl --user daemon-reload
+systemctl --user enable --now ov-server.service
+```
+
+Check status and logs:
+```
+systemctl --user status ov-server.service --no-pager
+journalctl --user -u ov-server.service -n 200 --no-pager
+```
+
+To keep the user service running across reboots without an active login:
+```
+loginctl enable-linger christopherbailey
 ```
 
 ## Conversion Metadata
@@ -103,6 +140,7 @@ curl http://localhost:9000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d @request.json
 ```
+Sample request file lives at `request.json`.
 
 ## Project Structure
 - `main.py` contains the FastAPI server implementation.

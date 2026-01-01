@@ -1,12 +1,14 @@
 import json
+import logging
 import os
 import queue
 import threading
 import time
-from typing import Any, Dict, List, Optional
+import uuid
+from typing import Any, Dict, List, Optional, Tuple
 
 import openvino_genai as ov_genai
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
@@ -21,24 +23,61 @@ MODEL_PATH = os.path.expanduser(
     )
 )
 DEVICE = os.environ.get("OV_DEVICE", "GPU")
+LOG_LEVEL = os.environ.get("OV_LOG_LEVEL", "INFO").upper()
+
+logging.basicConfig(level=LOG_LEVEL, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger("ov-llm-server")
 
 app = FastAPI()
 _PIPELINES: Dict[str, ov_genai.LLMPipeline] = {}
 _REGISTRY: Dict[str, Dict[str, Any]] = {}
+_REGISTRY_MTIME = 0.0
+_REGISTRY_LOCK = threading.Lock()
 
 
-def load_registry() -> Dict[str, Dict[str, Any]]:
+def read_registry() -> Tuple[Dict[str, Dict[str, Any]], float]:
     if not os.path.exists(REGISTRY_PATH):
-        return {}
+        return {}, 0.0
     try:
+        mtime = os.path.getmtime(REGISTRY_PATH)
         with open(REGISTRY_PATH, "r", encoding="utf-8") as handle:
             data = json.load(handle)
-        return data.get("models", {}) if isinstance(data, dict) else {}
+        models = data.get("models", {}) if isinstance(data, dict) else {}
+        return models, mtime
     except (OSError, json.JSONDecodeError):
-        return {}
+        return {}, 0.0
 
 
-_REGISTRY = load_registry()
+def refresh_registry(force: bool = False) -> None:
+    global _REGISTRY_MTIME
+    with _REGISTRY_LOCK:
+        models, mtime = read_registry()
+        if not force and mtime <= _REGISTRY_MTIME:
+            return
+        previous = _REGISTRY.copy()
+        _REGISTRY.clear()
+        _REGISTRY.update(models)
+        _REGISTRY_MTIME = mtime
+
+        changed = []
+        for name, entry in previous.items():
+            new_entry = models.get(name)
+            if not new_entry or new_entry.get("path") != entry.get("path"):
+                changed.append(name)
+        for name in changed:
+            _PIPELINES.pop(name, None)
+        if changed:
+            logger.info("Registry updated: reloaded=%d invalidated=%s", len(models), ",".join(changed))
+
+
+_REGISTRY, _REGISTRY_MTIME = read_registry()
+logger.info(
+    "Startup config: device=%s registry_path=%s fallback_model=%s registry_models=%d",
+    DEVICE,
+    REGISTRY_PATH,
+    MODEL_PATH,
+    len(_REGISTRY),
+)
 
 
 class FunctionCall(BaseModel):
@@ -76,7 +115,16 @@ def get_pipeline(model_name: str) -> ov_genai.LLMPipeline:
     if not model_path:
         model_path = MODEL_PATH
 
+    start = time.time()
     pipeline = ov_genai.LLMPipeline(model_path, DEVICE)
+    elapsed = time.time() - start
+    logger.info(
+        "Loaded model: name=%s path=%s device=%s time=%.2fs",
+        model_name,
+        model_path,
+        DEVICE,
+        elapsed,
+    )
     _PIPELINES[model_name] = pipeline
     return pipeline
 
@@ -269,12 +317,35 @@ def stream_chat_response(
     yield "data: [DONE]\n\n"
 
 
+@app.get("/health")
+def health() -> Dict[str, Any]:
+    return {
+        "status": "ok",
+        "device": DEVICE,
+        "models": len(_REGISTRY),
+    }
+
+
+@app.get("/v1/models")
+def list_models() -> Dict[str, Any]:
+    registry, _ = read_registry()
+    data = [
+        {"id": name, "object": "model", "owned_by": "local"}
+        for name in sorted(registry.keys())
+    ]
+    return {"object": "list", "data": data}
+
+
 @app.post("/v1/chat/completions")
-def chat_completions(request: ChatCompletionRequest):
+def chat_completions(request: ChatCompletionRequest, raw_request: Request):
+    request_id = uuid.uuid4().hex[:8]
+    start = time.time()
     model_name = request.model
+    client_host = raw_request.client.host if raw_request.client else "unknown"
+    refresh_registry()
     if model_name not in _REGISTRY and REGISTRY_PATH:
-        _REGISTRY.update(load_registry())
-        print(f"Reloaded registry for missing model: {model_name}")
+        refresh_registry(force=True)
+        logger.info("Reloaded registry for missing model: %s", model_name)
     prompt = build_prompt(model_name, request.messages, request.tools)
     config = build_config(request)
     created = int(time.time())
@@ -283,14 +354,32 @@ def chat_completions(request: ChatCompletionRequest):
         if request.tools:
             text = generate_text(prompt, config, model_name)
             tool_call = extract_tool_call(text, request.tools)
-            return StreamingResponse(
+            response = StreamingResponse(
                 stream_chat_response([], model_name, tool_call),
                 media_type="text/event-stream",
             )
-        return StreamingResponse(
+            logger.info(
+                "Request complete: id=%s model=%s stream=%s client=%s time=%.2fs",
+                request_id,
+                model_name,
+                request.stream,
+                client_host,
+                time.time() - start,
+            )
+            return response
+        response = StreamingResponse(
             stream_chat_response(stream_tokens(prompt, config, model_name), model_name, None),
             media_type="text/event-stream",
         )
+        logger.info(
+            "Request complete: id=%s model=%s stream=%s client=%s time=%.2fs",
+            request_id,
+            model_name,
+            request.stream,
+            client_host,
+            time.time() - start,
+        )
+        return response
 
     text = generate_text(prompt, config, model_name)
     tool_call = extract_tool_call(text, request.tools)
@@ -302,7 +391,7 @@ def chat_completions(request: ChatCompletionRequest):
     else:
         message = {"role": "assistant", "content": text}
 
-    return JSONResponse(
+    response = JSONResponse(
         {
             "id": "chatcmpl-0",
             "object": "chat.completion",
@@ -317,6 +406,15 @@ def chat_completions(request: ChatCompletionRequest):
             ],
         }
     )
+    logger.info(
+        "Request complete: id=%s model=%s stream=%s client=%s time=%.2fs",
+        request_id,
+        model_name,
+        request.stream,
+        client_host,
+        time.time() - start,
+    )
+    return response
 
 
 def main():
