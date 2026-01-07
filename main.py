@@ -19,7 +19,7 @@ REGISTRY_PATH = os.path.expanduser(
 MODEL_PATH = os.path.expanduser(
     os.environ.get(
         "OV_MODEL_PATH",
-        "~/models/converted_models/qwen2-5-3b-instruct/task-text-generation-with-past__wf-fp32",
+        "~/models/converted_models/qwen2-5-3b-instruct/task-text-generation-with-past__wf-fp16",
     )
 )
 DEVICE = os.environ.get("OV_DEVICE", "GPU")
@@ -319,10 +319,13 @@ def stream_chat_response(
 
 @app.get("/health")
 def health() -> Dict[str, Any]:
+    loaded_models = sorted(_PIPELINES.keys())
     return {
         "status": "ok",
         "device": DEVICE,
         "models": len(_REGISTRY),
+        "loaded_models": loaded_models,
+        "loaded_models_count": len(loaded_models),
     }
 
 

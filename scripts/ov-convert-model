@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SRC_ROOT="${OV_MODEL_SRC:-$HOME/model}"
-OG_ROOT="${OV_MODEL_OG:-$HOME/model/og_models}"
+SRC_ROOT="${OV_MODEL_SRC:-$HOME/models}"
+OG_ROOT="${OV_MODEL_OG:-$HOME/models/og_models}"
 OUT_ROOT="${OV_MODEL_OUT:-$HOME/models/converted_models}"
 CONVERT_ENV="${OV_CONVERT_ENV:-$PWD/.venv-convert}"
 OPTIMUM_CLI="${CONVERT_ENV}/bin/optimum-cli"
 TASK="${OV_TASK:-text-generation-with-past}"
-WEIGHT_FORMAT="${OV_WEIGHT_FORMAT:-fp32}"
+WEIGHT_FORMAT="${OV_WEIGHT_FORMAT:-fp16}"
+LIBRARY="${OV_LIBRARY:-transformers}"
+LOG_PATH="${OV_CONVERT_LOG:-$OUT_ROOT/convert.log}"
 
 if [[ ! -x "$OPTIMUM_CLI" ]]; then
   echo "Missing converter: $OPTIMUM_CLI" >&2
@@ -18,6 +20,16 @@ fi
 
 mkdir -p "$OG_ROOT" "$OUT_ROOT"
 
+log() {
+  local message="$1"
+  local timestamp
+  timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+  echo "$message"
+  echo "${timestamp} ${message}" >>"$LOG_PATH"
+}
+
+log "Starting conversion. task=${TASK} weight_format=${WEIGHT_FORMAT}. Failures will be logged; script will continue."
+
 shopt -s nullglob
 declare -A NAME_MAP
 MODEL_DIRS=()
@@ -26,7 +38,20 @@ for src in "$SRC_ROOT"/*; do
     continue
   fi
   base="$(basename "$src")"
-  if [[ "$base" == "og_models" ]]; then
+  if [[ "$base" == "og_models" || "$base" == "converted_models" ]]; then
+    log "Skipping managed dir: $base"
+    continue
+  fi
+  if [[ "$base" == *-ov ]]; then
+    echo "Skipping converted model dir: $base"
+    continue
+  fi
+  if [[ -f "$src/openvino_model.xml" ]]; then
+    log "Skipping converted model dir: $base"
+    continue
+  fi
+  if [[ ! -f "$src/config.json" ]]; then
+    log "Skipping incomplete model dir (missing config.json): $base"
     continue
   fi
   MODEL_DIRS+=("$src")
@@ -40,7 +65,7 @@ slugify() {
 }
 
 if [[ "${#MODEL_DIRS[@]}" -eq 0 ]]; then
-  echo "No models found under $SRC_ROOT"
+  log "No models found under $SRC_ROOT"
   exit 0
 fi
 
@@ -54,7 +79,7 @@ for src in "${MODEL_DIRS[@]}"; do
     custom_name="$(slugify "$custom_name")"
   fi
   if [[ -z "$custom_name" ]]; then
-    echo "Skipping unnamed model: $base"
+    log "Skipping unnamed model: $base"
     continue
   fi
   name="$custom_name"
@@ -64,10 +89,13 @@ for src in "${MODEL_DIRS[@]}"; do
     suffix=$((suffix + 1))
   done
   if [[ "$name" != "$custom_name" ]]; then
-    echo "Name in use; using: $name"
+    log "Name in use; using: $name"
   fi
   NAME_MAP["$src"]="$name"
 done
+
+FAILED=()
+SUCCEEDED=()
 
 for src in "${MODEL_DIRS[@]}"; do
   base="$(basename "$src")"
@@ -78,18 +106,24 @@ for src in "${MODEL_DIRS[@]}"; do
   og_path="$OG_ROOT/$base"
   dest_dir="${OUT_ROOT}/${name}/task-${TASK}__wf-${WEIGHT_FORMAT}"
   if [[ -d "$dest_dir" ]]; then
-    echo "Skipping already converted: $dest_dir"
+    log "Skipping already converted: $dest_dir"
     continue
   fi
 
-  echo "Converting: $src -> $dest_dir"
-  "$OPTIMUM_CLI" export openvino \
-    --model "$src" \
-    --task "$TASK" \
-    --trust-remote-code \
-    "$dest_dir"
+  log "Converting: $src -> $dest_dir"
+  if ! "$OPTIMUM_CLI" export openvino \
+      --model "$src" \
+      --task "$TASK" \
+      --trust-remote-code \
+      --library "$LIBRARY" \
+      --weight-format "$WEIGHT_FORMAT" \
+      "$dest_dir"; then
+    log "Conversion failed: $src"
+    FAILED+=("$base")
+    continue
+  fi
 
-  echo "Moving original to: $og_path"
+  log "Moving original to: $og_path"
   mv "$src" "$og_path"
 
   python3 - <<PY
@@ -142,4 +176,10 @@ with tempfile.NamedTemporaryFile("w", delete=False, dir=tmp_dir, prefix="registr
 
 os.replace(tmp_path, registry_path)
 PY
+  SUCCEEDED+=("$base")
 done
+
+log "Conversion summary: success=${#SUCCEEDED[@]} failed=${#FAILED[@]}"
+if [[ "${#FAILED[@]}" -gt 0 ]]; then
+  log "Failed models: ${FAILED[*]}"
+fi

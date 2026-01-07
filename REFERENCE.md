@@ -8,7 +8,7 @@ import openvino_genai as ov_genai
 
 # Initialization (GPU with CPU Fallback)
 # Note: "GPU" targets the Intel iGPU (Neo drivers)
-pipe = ov_genai.LLMPipeline("./model", "GPU")
+pipe = ov_genai.LLMPipeline("~/models/converted_models/<model>/task-text-generation-with-past__wf-fp16", "GPU")
 
 # Generation Config
 config = ov_genai.GenerationConfig()
