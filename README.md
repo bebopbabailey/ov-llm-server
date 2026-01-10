@@ -43,7 +43,7 @@ Optional: install the converter on your PATH:
 make install
 ```
 4) Run the server:
-```
+``
 uv run uvicorn main:app --host 0.0.0.0 --port 9000
 ```
 If your model path differs, set it explicitly:
