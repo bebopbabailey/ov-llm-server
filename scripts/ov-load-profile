@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SERVER_URL="${OV_SERVER_URL:-http://localhost:9000}"
+REGISTRY_PATH="${OV_REGISTRY_PATH:-$HOME/models/converted_models/registry.json}"
+
+if [[ ! -f "$REGISTRY_PATH" ]]; then
+  echo "Registry not found: $REGISTRY_PATH" >&2
+  exit 1
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "Missing dependency: jq" >&2
+  exit 1
+fi
+
+usage() {
+  cat <<'EOF'
+Usage: ov-load-profile <profile>
+
+Profiles:
+  benny-only-expanded  (default) Balanced Benny-only baseline.
+  benny-only-safe      Smaller Benny-only set with extra headroom.
+  benny-only-fast      Small/fast Benny-only set for low latency.
+
+Environment:
+  OV_SERVER_URL  (default: http://localhost:9000)
+  OV_REGISTRY_PATH (default: ~/models/converted_models/registry.json)
+EOF
+}
+
+if [[ "${1:-}" == "" || "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+PROFILE="$1"
+
+case "$PROFILE" in
+  benny-only-expanded)
+    MODELS=(
+      benny-classify-m
+      benny-clean-m
+      benny-summarize-m
+      benny-rewrite-m
+      benny-tool-s
+      benny-route-s
+      benny-clean-s
+      benny-summarize-s
+      benny-rewrite-s
+    )
+    ;;
+  benny-only-safe)
+    MODELS=(
+      benny-classify-m
+      benny-clean-m
+      benny-summarize-m
+      benny-rewrite-m
+      benny-tool-s
+      benny-route-s
+      benny-clean-s
+      benny-rewrite-s
+    )
+    ;;
+  benny-only-fast)
+    MODELS=(
+      benny-classify-s
+      benny-clean-s
+      benny-summarize-s
+      benny-rewrite-s
+      benny-tool-s
+      benny-route-s
+    )
+    ;;
+  *)
+    echo "Unknown profile: $PROFILE" >&2
+    usage
+    exit 1
+    ;;
+esac
+
+# Ensure all requested models exist in the registry.
+missing=()
+for model in "${MODELS[@]}"; do
+  if ! jq -e --arg key "$model" '.models[$key]' "$REGISTRY_PATH" >/dev/null; then
+    missing+=("$model")
+  fi
+done
+
+if [[ "${#missing[@]}" -gt 0 ]]; then
+  echo "Missing models in registry: ${missing[*]}" >&2
+  exit 1
+fi
+
+for model in "${MODELS[@]}"; do
+  echo "Warming model: $model"
+  curl -sS "${SERVER_URL}/v1/chat/completions" \
+    -H "Content-Type: application/json" \
+    -d "{\"model\":\"${model}\",\"messages\":[{\"role\":\"user\",\"content\":\"warm up\"}],\"stream\":false}" \
+    >/dev/null
+done
+
+echo "Profile '$PROFILE' warm-up complete."

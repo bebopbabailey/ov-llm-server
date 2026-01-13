@@ -20,6 +20,8 @@ Designed to act as a specialist node behind a proxy (e.g., LiteLLM).
 - `OV_REGISTRY_PATH` registry file path (default `~/models/converted_models/registry.json`)
 - `OV_DEVICE` (default `GPU`)
 - `OV_LOG_LEVEL` (default `INFO`)
+Note: current runtime uses fp32 weights via `/etc/homelab-llm/ov-server.env` until
+testing confirms fp32 is required.
 
 ## Model Registry
 Registry file: `~/models/converted_models/registry.json`
@@ -37,10 +39,9 @@ Format: `{ "version": 1, "models": { "<name>": { "path": "...", "task": "...", "
 - Model load timing logged
 - Per-request completion log includes request id, model, client IP, latency
 
-## Service Management (User Systemd)
-- Unit: `~/.config/systemd/user/ov-server.service`
-- Env file: `~/.config/ov-llm-server/ov-server.env`
-- Auto-start on boot: `loginctl enable-linger christopherbailey`
+## Service Management (Systemd)
+- Unit: `/etc/systemd/system/ov-server.service`
+- Env file: `/etc/homelab-llm/ov-server.env` (runtime; `services/ov-llm-server/ov-server.env` is a template)
 
 ## Interop Notes (for LiteLLM)
 - This service is a backend only; it does not provide a frontend UI.

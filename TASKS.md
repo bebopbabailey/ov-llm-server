@@ -66,7 +66,7 @@ Ye## Phase 6: CLI Install Convenience
     Expose a quick status endpoint to list models currently loaded in memory.
 
 ## Phase 8: Deployment
-- [x] **8.1 Create Service:** Generate `ov-server.service` and user env file, then enable with `systemctl --user`.
+- [x] **8.1 Create Service:** Generate `ov-server.service` and env file, then enable with `systemctl`.
 
 ## Future Projects
 - [ ] **F1 Choose Embedding Model:** Decide on a quality English embedding model (e.g., `intfloat/e5-large-v2` vs `BAAI/bge-base-en-v1.5`) and document the selection.

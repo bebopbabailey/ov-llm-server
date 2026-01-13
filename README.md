@@ -51,30 +51,27 @@ If your model path differs, set it explicitly:
 OV_MODEL_PATH=~/models/converted_models/qwen2-5-3b-instruct/task-text-generation-with-past__wf-fp16 \
   uv run uvicorn main:app --host 0.0.0.0 --port 9000
 ```
+Note: current runtime uses fp32 weights via `/etc/homelab-llm/ov-server.env` and is
+considered provisional until performance/quality testing confirms fp32 is needed.
 
-## Systemd (User Service)
-This repo includes a user-level systemd unit and env file:
+## Systemd (System Service)
+This repo includes a systemd unit and env file:
 - `ov-server.service`
-- `ov-server.env`
+- `ov-server.env` (template; runtime lives at `/etc/homelab-llm/ov-server.env`)
 
 Install and enable:
 ```
-mkdir -p ~/.config/ov-llm-server ~/.config/systemd/user
-cp ./ov-server.env ~/.config/ov-llm-server/ov-server.env
-cp ./ov-server.service ~/.config/systemd/user/ov-server.service
-systemctl --user daemon-reload
-systemctl --user enable --now ov-server.service
+sudo mkdir -p /etc/homelab-llm
+sudo cp ./ov-server.env /etc/homelab-llm/ov-server.env
+sudo cp ./ov-server.service /etc/systemd/system/ov-server.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now ov-server.service
 ```
 
 Check status and logs:
 ```
-systemctl --user status ov-server.service --no-pager
-journalctl --user -u ov-server.service -n 200 --no-pager
-```
-
-To keep the user service running across reboots without an active login:
-```
-loginctl enable-linger christopherbailey
+systemctl status ov-server.service --no-pager
+journalctl -u ov-server.service -n 200 --no-pager
 ```
 
 ## Conversion Metadata

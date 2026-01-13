@@ -60,8 +60,8 @@ There is no commit history yet. If you begin committing, use clear, imperative s
 ## Service Ergonomics
 - Prefer a systemd env file, single worker, and lazy model loading to keep resource use predictable.
 
-## Deployment (Planned)
-- Use a user-level systemd service with an env file under `~/.config/ov-llm-server/ov-server.env`.
+## Deployment
+- Use a systemd service with env file at `/etc/homelab-llm/ov-server.env`.
 
 ## Conversion Metadata (Planned)
 - Each converted model will include `conversion.json` with the chosen name, paths, task, and weight format.

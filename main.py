@@ -33,6 +33,7 @@ _PIPELINES: Dict[str, ov_genai.LLMPipeline] = {}
 _REGISTRY: Dict[str, Dict[str, Any]] = {}
 _REGISTRY_MTIME = 0.0
 _REGISTRY_LOCK = threading.Lock()
+_GENERATE_LOCK = threading.Lock()
 
 
 def read_registry() -> Tuple[Dict[str, Dict[str, Any]], float]:
@@ -196,7 +197,8 @@ def generate_text(prompt: str, config: ov_genai.GenerationConfig, model_name: st
 
     def run_generate() -> None:
         try:
-            pipe.generate(prompt, config, callback)
+            with _GENERATE_LOCK:
+                pipe.generate(prompt, config, callback)
         finally:
             done.set()
             token_queue.put(None)
@@ -222,7 +224,8 @@ def stream_tokens(prompt: str, config: ov_genai.GenerationConfig, model_name: st
 
     def run_generate() -> None:
         try:
-            pipe.generate(prompt, config, callback)
+            with _GENERATE_LOCK:
+                pipe.generate(prompt, config, callback)
         finally:
             token_queue.put(None)
 
