@@ -1,4 +1,4 @@
-# Service Spec: ov-llm-server
+yea# Service Spec: ov-llm-server
 
 ## Purpose
 OpenAI-compatible chat backend for lightweight OpenVINO models on the Mac Mini.
@@ -20,8 +20,9 @@ Designed to act as a specialist node behind a proxy (e.g., LiteLLM).
 - `OV_REGISTRY_PATH` registry file path (default `~/models/converted_models/registry.json`)
 - `OV_DEVICE` (default `GPU`)
 - `OV_LOG_LEVEL` (default `INFO`)
-Note: current runtime uses fp32 weights via `/etc/homelab-llm/ov-server.env` until
-testing confirms fp32 is required.
+Note: runtime defaults to GPU and uses int8 for `benny-clean-*` via LiteLLM routing.
+fp16 variants remain in the registry. int4 is unstable on GPU on this iGPU stack;
+CPU-only int4 is possible but lower fidelity.
 
 ## Model Registry
 Registry file: `~/models/converted_models/registry.json`

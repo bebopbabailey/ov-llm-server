@@ -51,7 +51,7 @@ Ye## Phase 6: CLI Install Convenience
 - [x] **7.3 Document Runtime Env Vars:**
     Explain `OV_MODEL_PATH`, `OV_REGISTRY_PATH`, and `OV_DEVICE` defaults.
 - [x] **7.4 Provide Sample Request File:**
-    Add `request.json` example for curl usage.
+    Add `docs/examples/request.json` example for curl usage.
 - [x] **7.5 Document Service Ergonomics:**
     Recommend systemd env file, single worker, and lazy loading defaults.
 - [x] **7.6 Refresh Registry Updates:**

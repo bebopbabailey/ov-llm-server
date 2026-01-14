@@ -2,162 +2,25 @@
 
 Bare-metal OpenVINO GenAI server targeting an OpenAI-compatible chat API.
 
-## Requirements
-- Python 3.12
-- `uv` for dependency management
-- OpenVINO GenAI runtime (Python package, no system drivers to install)
-
-## Runtime Configuration
-- `OV_MODEL_PATH`: fallback OpenVINO model path used when no registry entry exists.
-- `OV_REGISTRY_PATH`: registry file location (default: `~/models/converted_models/registry.json`).
-- `OV_DEVICE`: OpenVINO device (default: `GPU`).
-- `OV_LOG_LEVEL`: logging level (default: `INFO`).
-
-## Service Ergonomics
-- Use a systemd env file to set `OV_MODEL_PATH`, `OV_REGISTRY_PATH`, and `OV_DEVICE`.
-- Run a single worker to avoid duplicate model loads.
-- Keep lazy loading (models load on first request) for lower idle memory use.
-
 ## Quick Start
-1) Install dependencies:
-```
+```bash
 uv add openvino-genai fastapi uvicorn huggingface-hub numpy
-```
-2) Download a model outside the repo (recommended):
-```
-hf auth login
-hf download Qwen/Qwen2.5-3B-Instruct --local-dir ~/model/Qwen2.5-3B-Instruct
-```
-3) Convert models to OpenVINO IR (use a separate conversion env):
-```
-uv venv .venv-convert
-uv pip install --python .venv-convert "optimum[openvino]" transformers==4.49.0 sentencepiece tiktoken
-./scripts/ov-convert-model
-```
-You will be prompted once per model for a custom name; leaving it blank uses a slugged version
-of the source folder name.
-If the name already exists in `~/models/converted_models`, a numeric suffix is appended.
-The converter defaults to `fp16` weights.
-Optional: install the converter on your PATH:
-```
-make install
-```
-4) Run the server:
-``
 uv run uvicorn main:app --host 0.0.0.0 --port 9000
 ```
-If your model path differs, set it explicitly:
-```
-OV_MODEL_PATH=~/models/converted_models/qwen2-5-3b-instruct/task-text-generation-with-past__wf-fp16 \
-  uv run uvicorn main:app --host 0.0.0.0 --port 9000
-```
-Note: current runtime uses fp32 weights via `/etc/homelab-llm/ov-server.env` and is
-considered provisional until performance/quality testing confirms fp32 is needed.
 
-## Systemd (System Service)
-This repo includes a systemd unit and env file:
-- `ov-server.service`
-- `ov-server.env` (template; runtime lives at `/etc/homelab-llm/ov-server.env`)
+If you need conversion, registry, or API details, see `docs/REFERENCE.md`.
+Operational steps (systemd, logs, health) are in `RUNBOOK.md`.
 
-Install and enable:
-```
-sudo mkdir -p /etc/homelab-llm
-sudo cp ./ov-server.env /etc/homelab-llm/ov-server.env
-sudo cp ./ov-server.service /etc/systemd/system/ov-server.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now ov-server.service
-```
-
-Check status and logs:
-```
-systemctl status ov-server.service --no-pager
-journalctl -u ov-server.service -n 200 --no-pager
-```
-
-## Conversion Metadata
-Each converted model gets a `conversion.json` in its output folder:
-```json
-{
-  "name": "qwen2-5-3b-instruct",
-  "source_path": "/home/christopherbailey/model/Qwen2.5-3B-Instruct",
-  "original_path": "/home/christopherbailey/model/og_models/Qwen2.5-3B-Instruct",
-  "converted_path": "/home/christopherbailey/models/converted_models/qwen2-5-3b-instruct/task-text-generation-with-past__wf-fp16",
-  "task": "text-generation-with-past",
-  "weight_format": "fp16",
-  "converted_at": "2025-12-30T10:05:00+00:00"
-}
-```
-
-The registry file lives at `~/models/converted_models/registry.json`:
-```json
-{
-  "version": 1,
-  "models": {
-    "qwen2-5-3b-instruct": {
-      "path": "/home/christopherbailey/models/converted_models/qwen2-5-3b-instruct/task-text-generation-with-past__wf-fp16",
-      "task": "text-generation-with-past",
-      "weight_format": "fp16"
-    }
-  }
-}
-```
-
-## Warm-Up Command
-To preload one or more models into memory:
-```
-ov-warm-models qwen2-5-3b-instruct llama-3-2-3b-instruct
-```
-To warm all models from the registry:
-```
-ov-warm-models
-```
-Set a custom server URL if needed:
-```
-OV_SERVER_URL=http://localhost:9000 ov-warm-models
-```
-
-## Remote Conversion via SSH
-From another machine on your network, you can trigger conversions remotely:
-```
-ssh christopherbailey@192.168.1.71 "cd ~/ov-llm-server && ./scripts/ov-convert-model"
-```
-If you want to override the model root or output location:
-```
-ssh christopherbailey@192.168.1.71 "OV_MODEL_SRC=~/model OV_MODEL_OUT=~/models/converted_models cd ~/ov-llm-server && ./scripts/ov-convert-model"
-```
-
-## API
-The server exposes an OpenAI-compatible endpoint:
-- `POST /v1/chat/completions`
-
-Example request:
-```json
-{
-  "model": "qwen",
-  "messages": [
-    {"role": "system", "content": "You are a helpful assistant."},
-    {"role": "user", "content": "Explain what OpenVINO is in one sentence."}
-  ],
-  "tools": [],
-  "stream": false,
-  "temperature": 0.7
-}
-```
-Note: the current server uses `OV_MODEL_PATH` for selection and echoes the `model` field back.
-If a registry entry exists for the requested `model`, the server will load it instead.
-
-Example curl:
-```
-curl http://localhost:9000/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d @request.json
-```
-Sample request file lives at `request.json`.
+Note: runtime defaults to GPU and uses int8 for `benny-clean-*` via LiteLLM routing.
+fp16 variants remain in the registry; int4 is GPU-unstable on this iGPU stack and
+only viable on CPU with reduced fidelity.
 
 ## Project Structure
 - `main.py` contains the FastAPI server implementation.
 - `pyproject.toml` defines runtime dependencies (managed by `uv`).
-- `DEV_CONTRACT.md`, `REFERENCE.md`, `TASKS.md` document constraints and tasks.
+- `AGENTS.md`, `docs/REFERENCE.md`, `TASKS.md` document constraints and tasks.
+- `docs/` contains reference material and examples.
+- `RUNBOOK.md` covers systemd operations and health checks.
 
 ## Operational Constraints
 - Do not touch or restart the existing `ollama` service.
