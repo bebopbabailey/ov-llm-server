@@ -42,7 +42,7 @@ Format: `{ "version": 1, "models": { "<name>": { "path": "...", "task": "...", "
 
 ## Service Management (Systemd)
 - Unit: `/etc/systemd/system/ov-server.service`
-- Env file: `/etc/homelab-llm/ov-server.env` (runtime; `services/ov-llm-server/ov-server.env` is a template)
+- Env file: `/etc/homelab-llm/ov-server.env` (runtime; `layer-inference/ov-llm-server/ov-server.env` is a template)
 
 ## Interop Notes (for LiteLLM)
 - This service is a backend only; it does not provide a frontend UI.
