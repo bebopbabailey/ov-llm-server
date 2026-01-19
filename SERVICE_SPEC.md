@@ -20,7 +20,7 @@ Designed to act as a specialist node behind a proxy (e.g., LiteLLM).
 - `OV_REGISTRY_PATH` registry file path (default `~/models/converted_models/registry.json`)
 - `OV_DEVICE` (default `GPU`)
 - `OV_LOG_LEVEL` (default `INFO`)
-Note: runtime defaults to GPU and uses int8 for `benny-clean-*` via LiteLLM routing.
+Note: runtime defaults to GPU; LiteLLM now routes `ov-*` aliases to base OpenVINO model IDs.
 fp16 variants remain in the registry. int4 is unstable on GPU on this iGPU stack;
 CPU-only int4 is possible but lower fidelity.
 

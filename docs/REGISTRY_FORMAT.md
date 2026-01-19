@@ -9,8 +9,8 @@ The file is JSON with a version and a models map:
 {
   "version": 1,
   "models": {
-    "qwen2-5-3b-instruct": {
-      "path": "/home/christopherbailey/models/converted_models/qwen2-5-3b-instruct/task-text-generation-with-past__wf-fp16",
+    "ov-qwen2-5-3b-instruct-fp16": {
+      "path": "/home/christopherbailey/models/converted_models/ov-qwen2-5-3b-instruct-fp16/task-text-generation-with-past__wf-fp16",
       "task": "text-generation-with-past",
       "weight_format": "fp16"
     }
@@ -19,6 +19,7 @@ The file is JSON with a version and a models map:
 ```
 
 ## Notes
-- Keys under `models` are slugged names chosen during conversion.
+- Keys under `models` are canonical model IDs and must match the folder names
+  under `~/models/converted_models/`.
 - `path` points to the converted OpenVINO model directory.
 - Extra metadata can be added later without breaking the format.

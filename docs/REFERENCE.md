@@ -29,10 +29,10 @@ If a registry entry exists for the requested `model`, the server loads it instea
 Each converted model gets a `conversion.json` in its output folder:
 ```json
 {
-  "name": "qwen2-5-3b-instruct",
+  "name": "ov-qwen2-5-3b-instruct-fp16",
   "source_path": "/home/christopherbailey/model/Qwen2.5-3B-Instruct",
   "original_path": "/home/christopherbailey/model/og_models/Qwen2.5-3B-Instruct",
-  "converted_path": "/home/christopherbailey/models/converted_models/qwen2-5-3b-instruct/task-text-generation-with-past__wf-fp16",
+  "converted_path": "/home/christopherbailey/models/converted_models/ov-qwen2-5-3b-instruct-fp16/task-text-generation-with-past__wf-fp16",
   "task": "text-generation-with-past",
   "weight_format": "fp16",
   "converted_at": "2025-12-30T10:05:00+00:00"
@@ -44,8 +44,8 @@ The registry file lives at `~/models/converted_models/registry.json`:
 {
   "version": 1,
   "models": {
-    "qwen2-5-3b-instruct": {
-      "path": "/home/christopherbailey/models/converted_models/qwen2-5-3b-instruct/task-text-generation-with-past__wf-fp16",
+    "ov-qwen2-5-3b-instruct-fp16": {
+      "path": "/home/christopherbailey/models/converted_models/ov-qwen2-5-3b-instruct-fp16/task-text-generation-with-past__wf-fp16",
       "task": "text-generation-with-past",
       "weight_format": "fp16"
     }
@@ -56,7 +56,7 @@ The registry file lives at `~/models/converted_models/registry.json`:
 ## Warm-up commands
 Preload one or more models into memory:
 ```bash
-ov-warm-models qwen2-5-3b-instruct llama-3-2-3b-instruct
+ov-warm-models ov-qwen2-5-3b-instruct-fp16 ov-llama-3-2-3b-instruct-fp16
 ```
 
 Warm all models from the registry:

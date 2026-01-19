@@ -19,7 +19,7 @@ REGISTRY_PATH = os.path.expanduser(
 MODEL_PATH = os.path.expanduser(
     os.environ.get(
         "OV_MODEL_PATH",
-        "~/models/converted_models/qwen2-5-3b-instruct/task-text-generation-with-past__wf-fp16",
+        "~/models/converted_models/ov-qwen2-5-3b-instruct-fp16/task-text-generation-with-past__wf-fp16",
     )
 )
 DEVICE = os.environ.get("OV_DEVICE", "GPU")
